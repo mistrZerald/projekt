@@ -1,8 +1,8 @@
 import cv2
-import keyboard
 import numpy as np
 import time
 from threading import Thread, Event
+from pynput import keyboard
 
 
 class ShapeDetector:
@@ -30,22 +30,26 @@ class ShapeDetector:
     def mission_kolo(self):
         print("wykonanie misji dla kolo")
 
+    def on_press(self, key):
+        try:
+            if key.char == 'h':
+                self.chose_shape = 'square'
+            elif key.char == 'j':
+                self.chose_shape = 'triangle'
+            elif key.char == 'k':
+                self.chose_shape = 'circle'
+        except AttributeError:
+            pass
+
     def chose(self):
         self.chose_shape = None
-        while True:
+        with keyboard.Listener(on_press=self.on_press) as listener:
             print("H - kwadrat")
             print("J - trojkat")
             print("K - kolo")
-            key = keyboard.read_key()
-            if key == "h":
-                self.chose_shape = 'square'
-                break
-            elif key == "j":
-                self.chose_shape = 'triangle'
-                break
-            elif key == "k":
-                self.chose_shape = 'circle'
-                break
+            while self.chose_shape is None:
+                time.sleep(0.1)
+            listener.stop()
 
     def nothing(self, x):
         pass
@@ -150,7 +154,7 @@ class ShapeDetector:
 
                 # Sprawdzenie powierzchni konturu
                 self.area = cv2.contourArea(contour)
-                if self.area < 100:
+                if self.area < 500:
                     continue
 
                 # Sprawdzenie kształtu konturu
@@ -192,6 +196,7 @@ class ShapeDetector:
             cv2.imshow('Kontury', frame)
             cv2.imshow('Maska', mask)
 
+
             # Wyjście z pętli po naciśnięciu klawisza 'q'
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -205,14 +210,18 @@ class ShapeDetector:
         self.triangle_detected_time = None
         self.square_detected_time = None
         self.circle_detected_time = None
-        self.detection_duration = 2  # Duration in seconds
+        self.detection_duration = 3  # Duration in seconds
         self.stop_controller = Event()
 
+        # Let the user choose the shape in a separate thread
+        chose_thread = Thread(target=self.chose)
+        chose_thread.start()
 
-        self.chose()  # Let the user choose the shape before starting detection
-        self.detect()  # Start detection when an instance is created
+        # Start detection when an instance is created
+        self.detect()
 
 
 # Create an instance of the ShapeDetector and run the detection
 if __name__ == '__main__':
     ShapeDetector()
+
