@@ -63,9 +63,6 @@ class TelloController:
         pass
 
     def detect(self):
-
-
-
         # Inicjalizacja kamerki
         cap = cv2.VideoCapture(0)
 
@@ -79,13 +76,14 @@ class TelloController:
         cv2.createTrackbar('High S', 'Kontury', 93, 255, self.nothing)
         cv2.createTrackbar('Low V', 'Kontury', 40, 255, self.nothing)
         cv2.createTrackbar('High V', 'Kontury', 98, 255, self.nothing)
-        blue_detected_time = None
-        blue_continuous_time = 5
+
+        triangle_detected_time = None
+        detection_duration = 2  # Duration in seconds
+
+        frame_read = self.tello_drone.get_frame_read()
+
         while True:
-            # Pobranie klatki z kamerki
-            ret, frame = cap.read()
-            if not ret:
-                break
+            frame = frame_read.frame
 
             # Konwersja obrazu do przestrzeni barw HSV
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -114,6 +112,10 @@ class TelloController:
             # Znajdowanie konturów
             contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
+            triangle_detected = False
+            kwadr_detected = False
+            kolo_detected = False
+
             for contour in contours:
                 # Przybliżenie konturu do wielokąta
                 epsilon = 0.02 * cv2.arcLength(contour, True)
@@ -121,36 +123,51 @@ class TelloController:
 
                 # Sprawdzenie powierzchni konturu
                 self.area = cv2.contourArea(contour)
-                if self.area < 900:
+                if self.area < 10000:
                     continue
 
                 # Sprawdzenie kształtu konturu
                 if len(approx) == 3:
                     # Rysowanie trójkąta
                     cv2.drawContours(frame, [approx], 0, (0, 255, 255), 2)
+                    triangle_detected = True
                 elif len(approx) == 4:
                     # Rysowanie prostokąta/kwadratu
                     x, y, w, h = cv2.boundingRect(approx)
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
                     cv2.putText(frame, "kwadrat", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
+                    kwadr_detected = True
                 else:
                     # Sprawdzenie, czy kontur jest wystarczająco okrągły, aby był kołem
                     (x, y), radius = cv2.minEnclosingCircle(contour)
                     center = (int(x), int(y))
                     radius = int(radius)
+                    kolo_detected = True
                     if abs(cv2.contourArea(contour) - (np.pi * radius * radius)) < 0.2 * (np.pi * radius * radius):
                         # Rysowanie koła
                         cv2.circle(frame, center, radius, (255, 0, 0), 2)
 
-                if len(approx) == 3:
-                    if blue_detected_time is None:
-                        blue_detected_time = time.time()
-                    elif time.time() - blue_detected_time >= blue_continuous_time:
-                        print("hura")
-                        blue_detected_time = None  # Reset after successful detection
-                else:
-                    blue_detected_time = None
+
+            if triangle_detected:
+                if triangle_detected_time is None:
+                    triangle_detected_time = time.time()
+                elif time.time() - triangle_detected_time >= detection_duration:
+                    print("hura")
+                    triangle_detected_time = None  # Reset after detection
+            elif kwadr_detected:
+                if triangle_detected_time is None:
+                    triangle_detected_time = time.time()
+                elif time.time() - triangle_detected_time >= detection_duration:
+                    print("hura")
+                    triangle_detected_time = None  # Reset after detection
+            elif kolo_detected:
+                if triangle_detected_time is None:
+                    triangle_detected_time = time.time()
+                elif time.time() - triangle_detected_time >= detection_duration:
+                    print("hura")
+                    triangle_detected_time = None  # Reset after detection
+            else:
+                triangle_detected_time = None
 
 
             # Wyświetlanie wyników
@@ -160,7 +177,6 @@ class TelloController:
             # Wyjście z pętli po naciśnięciu klawisza 'q'
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-
 
         # Zwolnienie kamerki i zamknięcie wszystkich okien
         cap.release()
