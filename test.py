@@ -1,13 +1,95 @@
 import cv2
+import keyboard
 import numpy as np
 import time
+from threading import Thread, Event
+
 
 class ShapeDetector:
-    def __init__(self):
-        self.area = 0
+    class TelloTimer(Thread):
+        interval = 1.0
+        running = None
+        func = None
+
+        def __init__(self, interval, event, func):
+            Thread.__init__(self)
+            self.running = event
+            self.interval = interval
+            self.func = func
+
+        def run(self):
+            while not self.running.wait(self.interval):
+                self.func()
+
+    def mission_kwadr(self):
+        print("wykonanie misji dla kwadrat")
+
+    def mission_trojkat(self):
+        print("wykonanie misji dla trojkat")
+
+    def mission_kolo(self):
+        print("wykonanie misji dla kolo")
+
+    def chose(self):
+        self.chose_shape = None
+        while True:
+            print("H - kwadrat")
+            print("J - trojkat")
+            print("K - kolo")
+            key = keyboard.read_key()
+            if key == "h":
+                self.chose_shape = 'square'
+                break
+            elif key == "j":
+                self.chose_shape = 'triangle'
+                break
+            elif key == "k":
+                self.chose_shape = 'circle'
+                break
 
     def nothing(self, x):
         pass
+
+    def check_detection_duration(self, shape_detected, shape_type):
+        current_time = time.time()
+
+        if shape_type == 'triangle':
+            if shape_detected:
+                if self.triangle_detected_time is None:
+                    self.triangle_detected_time = current_time
+                elif current_time - self.triangle_detected_time >= self.detection_duration:
+                    print("hura - triangle")
+                    self.mission_trojkat()  # Perform the mission for triangle
+                    self.triangle_detected_time = None  # Reset after detection
+                    return True
+            else:
+                self.triangle_detected_time = None
+
+        if shape_type == 'square':
+            if shape_detected:
+                if self.square_detected_time is None:
+                    self.square_detected_time = current_time
+                elif current_time - self.square_detected_time >= self.detection_duration:
+                    print("hura - square")
+                    self.mission_kwadr()  # Perform the mission for square
+                    self.square_detected_time = None  # Reset after detection
+                    return True
+            else:
+                self.square_detected_time = None
+
+        if shape_type == 'circle':
+            if shape_detected:
+                if self.circle_detected_time is None:
+                    self.circle_detected_time = current_time
+                elif current_time - self.circle_detected_time >= self.detection_duration:
+                    print("hura - circle")
+                    self.mission_kolo()  # Perform the mission for circle
+                    self.circle_detected_time = None  # Reset after detection
+                    return True
+            else:
+                self.circle_detected_time = None
+
+        return False
 
     def detect(self):
         # Inicjalizacja kamerki
@@ -23,9 +105,6 @@ class ShapeDetector:
         cv2.createTrackbar('High S', 'Kontury', 93, 255, self.nothing)
         cv2.createTrackbar('Low V', 'Kontury', 40, 255, self.nothing)
         cv2.createTrackbar('High V', 'Kontury', 98, 255, self.nothing)
-
-        triangle_detected_time = None
-        detection_duration = 2  # Duration in seconds
 
         while True:
             # Pobranie klatki z kamerki
@@ -78,6 +157,8 @@ class ShapeDetector:
                 if len(approx) == 3:
                     # Rysowanie trójkąta
                     cv2.drawContours(frame, [approx], 0, (0, 255, 255), 2)
+                    cv2.putText(frame, "triangle", (approx[0][0][0], approx[0][0][1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                                (0, 255, 255))
                     triangle_detected = True
                 elif len(approx) == 4:
                     # Rysowanie prostokąta/kwadratu
@@ -90,32 +171,22 @@ class ShapeDetector:
                     (x, y), radius = cv2.minEnclosingCircle(contour)
                     center = (int(x), int(y))
                     radius = int(radius)
-                    kolo_detected = True
                     if abs(cv2.contourArea(contour) - (np.pi * radius * radius)) < 0.2 * (np.pi * radius * radius):
                         # Rysowanie koła
                         cv2.circle(frame, center, radius, (255, 0, 0), 2)
+                        cv2.putText(frame, "circle", (center[0], center[1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
+                        kolo_detected = True
 
-            # Check for triangle detection duration
-            if triangle_detected:
-                if triangle_detected_time is None:
-                    triangle_detected_time = time.time()
-                elif time.time() - triangle_detected_time >= detection_duration:
-                    print("hura")
-                    triangle_detected_time = None  # Reset after detection
-            elif kwadr_detected:
-                if triangle_detected_time is None:
-                    triangle_detected_time = time.time()
-                elif time.time() - triangle_detected_time >= detection_duration:
-                    print("hura")
-                    triangle_detected_time = None  # Reset after detection
-            elif kolo_detected:
-                if triangle_detected_time is None:
-                    triangle_detected_time = time.time()
-                elif time.time() - triangle_detected_time >= detection_duration:
-                    print("hura")
-                    triangle_detected_time = None  # Reset after detection
-            else:
-                triangle_detected_time = None
+            # Check for detection duration for each shape
+            if self.chose_shape == 'triangle':
+                if self.check_detection_duration(triangle_detected, 'triangle'):
+                    self.chose()  # Ask for the shape again
+            elif self.chose_shape == 'square':
+                if self.check_detection_duration(kwadr_detected, 'square'):
+                    self.chose()  # Ask for the shape again
+            elif self.chose_shape == 'circle':
+                if self.check_detection_duration(kolo_detected, 'circle'):
+                    self.chose()  # Ask for the shape again
 
             # Wyświetlanie wyników
             cv2.imshow('Kontury', frame)
@@ -129,6 +200,19 @@ class ShapeDetector:
         cap.release()
         cv2.destroyAllWindows()
 
+    def __init__(self):
+        self.area = 0
+        self.triangle_detected_time = None
+        self.square_detected_time = None
+        self.circle_detected_time = None
+        self.detection_duration = 2  # Duration in seconds
+        self.stop_controller = Event()
+
+
+        self.chose()  # Let the user choose the shape before starting detection
+        self.detect()  # Start detection when an instance is created
+
+
 # Create an instance of the ShapeDetector and run the detection
-shape_detector = ShapeDetector()
-shape_detector.detect()
+if __name__ == '__main__':
+    ShapeDetector()
