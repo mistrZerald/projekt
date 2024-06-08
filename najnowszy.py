@@ -162,17 +162,25 @@ class ShapeDetector:
 
                 # Sprawdzenie kształtu konturu
                 if len(approx) == 3:
-                    # Rysowanie trójkąta
-                    cv2.drawContours(frame, [approx], 0, (0, 255, 255), 2)
-                    cv2.putText(frame, "triangle", (approx[0][0][0], approx[0][0][1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
-                                (0, 255, 255))
-                    triangle_detected = True
+                    # Sprawdzenie, czy trójkąt jest równoboczny
+                    side1 = np.linalg.norm(approx[0][0] - approx[1][0])
+                    side2 = np.linalg.norm(approx[1][0] - approx[2][0])
+                    side3 = np.linalg.norm(approx[2][0] - approx[0][0])
+                    if abs(side1 - side2) < 0.2 * side1 and abs(side2 - side3) < 0.2 * side2 and abs(side3 - side1) < 0.1 * side3:
+                        # Rysowanie trójkąta
+                        cv2.drawContours(frame, [approx], 0, (0, 255, 255), 2)
+                        cv2.putText(frame, "triangle", (approx[0][0][0], approx[0][0][1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                                    (0, 255, 255))
+                        triangle_detected = True
                 elif len(approx) == 4:
-                    # Rysowanie prostokąta/kwadratu
-                    x, y, w, h = cv2.boundingRect(approx)
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    cv2.putText(frame, "kwadrat", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
-                    kwadr_detected = True
+                    # Sprawdzenie, czy prostokąt jest kwadratem
+                    (x, y, w, h) = cv2.boundingRect(approx)
+                    aspect_ratio = float(w) / h
+                    if 0.8 <= aspect_ratio <= 1.2:
+                        # Rysowanie prostokąta/kwadratu
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        cv2.putText(frame, "kwadrat", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
+                        kwadr_detected = True
                 else:
                     # Sprawdzenie, czy kontur jest wystarczająco okrągły, aby był kołem
                     (x, y), radius = cv2.minEnclosingCircle(contour)
