@@ -6,20 +6,22 @@ from pynput import keyboard
 
 
 class ShapeDetector:
-    class TelloTimer(Thread):
-        interval = 1.0
-        running = None
-        func = None
+    def __init__(self):
+        self.area = 0
+        self.triangle_detected_time = None
+        self.square_detected_time = None
+        self.circle_detected_time = None
+        self.detection_duration = 2  # Duration in seconds
+        self.stop_controller = Event()
+        self.chose_shape = None
+        self.cap = cv2.VideoCapture(0)
 
-        def __init__(self, interval, event, func):
-            Thread.__init__(self)
-            self.running = event
-            self.interval = interval
-            self.func = func
+        # Let the user choose the shape in a separate thread
+        self.chose_thread = Thread(target=self.chose)
+        self.chose_thread.start()
 
-        def run(self):
-            while not self.running.wait(self.interval):
-                self.func()
+        # Start detection when an instance is created
+        self.detect()
 
     def mission_kwadr(self):
         print("wykonanie misji dla kwadrat")
@@ -32,6 +34,9 @@ class ShapeDetector:
 
     def on_press(self, key):
         try:
+            print("H - kwadrat")
+            print("J - trojkat")
+            print("K - kolo")
             if key.char == 'h':
                 self.chose_shape = 'square'
             elif key.char == 'j':
@@ -42,14 +47,15 @@ class ShapeDetector:
             pass
 
     def chose(self):
-        self.chose_shape = None
-        with keyboard.Listener(on_press=self.on_press) as listener:
-            print("H - kwadrat")
-            print("J - trojkat")
-            print("K - kolo")
-            while self.chose_shape is None:
-                time.sleep(0.1)
-            listener.stop()
+        while True:
+            with keyboard.Listener(on_press=self.on_press) as listener:
+                print("H - kwadrat")
+                print("J - trojkat")
+                print("K - kolo")
+                listener.join()  # Block until a key is pressed
+
+            if self.chose_shape is not None:
+                break
 
     def nothing(self, x):
         pass
@@ -96,9 +102,6 @@ class ShapeDetector:
         return False
 
     def detect(self):
-        # Inicjalizacja kamerki
-        cap = cv2.VideoCapture(0)
-
         # Tworzenie okna
         cv2.namedWindow('Kontury')
 
@@ -112,7 +115,7 @@ class ShapeDetector:
 
         while True:
             # Pobranie klatki z kamerki
-            ret, frame = cap.read()
+            ret, frame = self.cap.read()
             if not ret:
                 break
 
@@ -184,44 +187,27 @@ class ShapeDetector:
             # Check for detection duration for each shape
             if self.chose_shape == 'triangle':
                 if self.check_detection_duration(triangle_detected, 'triangle'):
-                    self.chose()  # Ask for the shape again
+                    self.chose_shape = None  # Reset the chosen shape
             elif self.chose_shape == 'square':
                 if self.check_detection_duration(kwadr_detected, 'square'):
-                    self.chose()  # Ask for the shape again
+                    self.chose_shape = None  # Reset the chosen shape
             elif self.chose_shape == 'circle':
                 if self.check_detection_duration(kolo_detected, 'circle'):
-                    self.chose()  # Ask for the shape again
+                    self.chose_shape = None  # Reset the chosen shape
 
             # Wyświetlanie wyników
             cv2.imshow('Kontury', frame)
             cv2.imshow('Maska', mask)
-
 
             # Wyjście z pętli po naciśnięciu klawisza 'q'
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
         # Zwolnienie kamerki i zamknięcie wszystkich okien
-        cap.release()
+        self.cap.release()
         cv2.destroyAllWindows()
-
-    def __init__(self):
-        self.area = 0
-        self.triangle_detected_time = None
-        self.square_detected_time = None
-        self.circle_detected_time = None
-        self.detection_duration = 3  # Duration in seconds
-        self.stop_controller = Event()
-
-        # Let the user choose the shape in a separate thread
-        chose_thread = Thread(target=self.chose)
-        chose_thread.start()
-
-        # Start detection when an instance is created
-        self.detect()
 
 
 # Create an instance of the ShapeDetector and run the detection
 if __name__ == '__main__':
     ShapeDetector()
-
