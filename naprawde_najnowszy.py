@@ -3,6 +3,7 @@ import numpy as np
 import time
 from threading import Thread, Event
 import keyboard
+from djitellopy import tello
 
 class TelloController:
 
@@ -196,8 +197,8 @@ class TelloController:
 
     def wait_until_centered(self, initial_center, shape_type):
         while self.centering_in_progress:
-            ret, frame = self.cap.read()  # Continuously read from the camera to avoid freezing
-            if not ret:
+            frame = self.tello_drone.get_frame_read().frame  # Continuously read from the drone camera to avoid freezing
+            if frame is None:
                 break
 
             # Update the position of the shape based on new frame
@@ -273,6 +274,7 @@ class TelloController:
                     self.mission_kolo()
 
     def detect(self):
+        self.tello_drone.takeoff()
         cv2.namedWindow('Kontury')
         cv2.createTrackbar('Low H', 'Kontury', 0, 179, self.nothing)
         cv2.createTrackbar('High H', 'Kontury', 179, 179, self.nothing)
@@ -280,11 +282,10 @@ class TelloController:
         cv2.createTrackbar('High S', 'Kontury', 110, 255, self.nothing)
         cv2.createTrackbar('Low V', 'Kontury', 0, 255, self.nothing)
         cv2.createTrackbar('High V', 'Kontury', 110, 255, self.nothing)
-
-        while not self.stop_controller.is_set():
-            ret, frame = self.cap.read()
-            if not ret:
-                break
+        frame_read = self.tello_drone.get_frame_read()
+        cnt = 0
+        while True and cnt < 3:
+            frame = frame_read.frame
 
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             low_h = cv2.getTrackbarPos('Low H', 'Kontury')
@@ -314,7 +315,7 @@ class TelloController:
                 self.area = cv2.contourArea(contour)
                 if self.area < 500:
                     continue
-
+                det = None
                 if len(approx) == 3:
                     v1 = approx[1][0] - approx[0][0]
                     v2 = approx[2][0] - approx[1][0]
@@ -332,6 +333,8 @@ class TelloController:
                         triangle_detected = True
                         shape_center = np.mean(approx, axis=0)[0]
 
+                        det = 0
+
                 elif len(approx) == 4:
                     x, y, w, h = cv2.boundingRect(approx)
                     if abs(w - h) < 0.1 * max(w, h):
@@ -339,6 +342,7 @@ class TelloController:
                         cv2.putText(frame, "kwadrat", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
                         kwadr_detected = True
                         shape_center = np.mean(approx, axis=0)[0]
+                        det = 1
                 else:
                     (x, y), radius = cv2.minEnclosingCircle(contour)
                     center = (int(x), int(y))
@@ -348,17 +352,37 @@ class TelloController:
                         cv2.putText(frame, "circle", (center[0], center[1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0))
                         kolo_detected = True
                         shape_center = center
+                        det = 2
 
-            if not self.centering_in_progress:
-                if self.chose_shape == 'triangle':
-                    if self.check_detection_duration(triangle_detected, 'triangle', shape_center):
-                        self.chose_shape = None
-                elif self.chose_shape == 'square':
-                    if self.check_detection_duration(kwadr_detected, 'square', shape_center):
-                        self.chose_shape = None
-                elif self.chose_shape == 'circle':
-                    if self.check_detection_duration(kolo_detected, 'circle', shape_center):
-                        self.chose_shape = None
+            if self.area > 2000:
+                if det == 0:
+                    print("trojkat")
+                    self.tello_drone.rotate_clockwise(180)
+                    time.sleep(2)
+                    cnt = cnt + 1
+                elif det == 1:
+                    print('kwadr')
+                    self.tello_drone.rotate_clockwise(50)
+                    time.sleep(2)
+                    cnt = cnt + 1
+                elif det == 2:
+                    print("kolo")
+                    self.tello_drone.rotate_counter_clockwise(50)
+                    time.sleep(2)
+                    cnt = cnt + 1
+                    print(cnt)
+
+            # if
+            # if not self.centering_in_progress:
+            #     if self.chose_shape == 'triangle':
+            #         if self.check_detection_duration(triangle_detected, 'triangle', shape_center):
+            #             self.chose_shape = None
+            #     elif self.chose_shape == 'square':
+            #         if self.check_detection_duration(kwadr_detected, 'square', shape_center):
+            #             self.chose_shape = None
+            #     elif self.chose_shape == 'circle':
+            #         if self.check_detection_duration(kolo_detected, 'circle', shape_center):
+            #             self.chose_shape = None
 
             cv2.imshow('Kontury', frame)
             cv2.imshow('Maska', mask)
@@ -367,8 +391,7 @@ class TelloController:
                 self.stop_controller.set()
                 break
 
-        self.cap.release()
-        cv2.destroyAllWindows()
+
 
     def wait_gone(self):
         while not self.stop_controller.is_set():
@@ -377,36 +400,30 @@ class TelloController:
 
     def __init__(self):
 
-        #p = open('data.csv', 'w', newline='')
-        #r = csv.writer(p, delimiter='-')
-        #r.writerow(['Battery', 'Pitch', 'Yaw', 'Roll', 'Speed X', 'Speed Y', 'Speed Z', 'Acceleration X', 'Acceleration Y', 'Acceleration Z', 'Flight Time'])
-        #p.close()
+
 
         self.kill_switch = self.TelloKillSwitch(self)
         self.kill_switch.start()
 
         self.stop_controller = Event()
 
+        self.tello_drone = tello.Tello()
+        self.tello_drone.connect()
+
+        self.tello_drone.streamon()
+        self.color_name = "None"
         self.area = 0
-        self.triangle_detected_time = None
-        self.square_detected_time = None
-        self.circle_detected_time = None
-        self.detection_duration = 2  # Duration in seconds
-        self.stop_controller = Event()
-        self.chose_shape = None
-        self.centering_in_progress = False
-        self.cap = cv2.VideoCapture(0)
+        self.MissionSequence = []
+        self.green_box_center = []
+        self.control_x = 0
 
-        # Let the user choose the shape in a separate thread
-        self.chose_thread = Thread(target=self.chose)
-        self.chose_thread.start()
+        self.detect()
 
-        # Start the camera feed thread
-        self.detect_thread = Thread(target=self.detect)
-        self.detect_thread.start()
+        time.sleep(5)
 
-        # Start detection when an instance is created
-        self.wait_gone()
+        cv2.destroyAllWindows()
+        self.stop_controller.set()
+        self.tello_drone.end()
 
 
 if __name__ == '__main__':
